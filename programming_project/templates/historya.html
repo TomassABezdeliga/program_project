@@ -1,0 +1,32 @@
+{% extends "layout.html" %}
+
+{% block body %}
+<h2>HISTORY</h2>
+<div class="admin_history-container">
+  <table border="1">
+    <thead>
+      <tr>
+        <th>Member</th>
+        <th>Product</th>
+        <th>Quantity</th>
+        <th>Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in history_data %}
+        <tr>
+          <td>{{ row["name"] }}</td>
+          <td>{{ row["share_name"] }}</td>
+          <td>{{ row["quantity"] }}</td>
+          <td>{{ row["transaction_date"] }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div style="margin-top: 20px;">
+    <a href="{{url_for('admin')}}">
+      <button type="button">BACK</button>
+    </a>
+  </div>
+</div>
+{% endblock %}

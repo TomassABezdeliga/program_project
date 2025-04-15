@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+
+{% block body %}
+<h2>MEMBERS</h2>
+<form method="POST" action="{{url_for('members')}}">
+  <div>
+    <label for="new_member_name">Name:</label>
+    <input type="text" id="new_member_name" name="new_member_name" required>
+  </div>
+  <div>
+    <label for="share_type_id">Share:</label>
+    <select name="share_type_id" id="share_type_id">
+      <option value="">Select Share</option>
+      {% for share in share_types %}
+      <option value="{{share[0]}}">{{share[1]}}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div style="margin-top: 10px;">
+    <button type="submit">ADD</button>
+  </div>
+</form>
+<h3>Existing Members:</h3>
+<table border="1">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Share</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for member in members_list %}
+    <tr>
+      <td>{{member[1]}}</td>
+      <td>
+        {{member[2] if member[2] else "N/A"}}
+      </td>
+      <td>
+        <a href="{{url_for('statusa', user_id=member[0])}}">
+          <button type="button">STATUS</button>
+        </a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<div style="margin-top: 20px;">
+  <a href="{{url_for('admin')}}">
+    <button>BACK</button>
+  </a>
+</div>
+{% endblock %}

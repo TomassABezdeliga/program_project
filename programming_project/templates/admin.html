@@ -1,0 +1,32 @@
+{% extends "layout.html" %}
+
+{% block body %}
+<div class="admin-container">
+  <h2>ADMIN</h2>
+  <a href="/shares">
+    <button type="button" name="shares_button">
+      SHARES
+    </button>
+  </a>
+  <a href="/registrationa">
+    <button type="button" name="admin_registration_button">
+      REGISTRATION
+    </button>
+  </a>
+  <a href="/historya">
+    <button type="button" name="admin_history_button">
+      HISTORY
+    </button>
+  </a>
+  <a href="/members">
+    <button type="button" name="members_button">
+      MEMBERS
+    </button>
+  </a>
+  <a href="/logout">
+    <button type="button" name="log_off_button">
+      LOG OFF
+    </button>
+  </a>
+</div>
+{% endblock %}

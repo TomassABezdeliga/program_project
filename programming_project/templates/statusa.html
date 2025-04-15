@@ -1,0 +1,74 @@
+{% extends "layout.html" %}
+
+{% block body %}
+<h2>Member Status for: {{user.name}}</h2>
+<div class="admin_status-container">
+  <p><strong>Status:</strong> {{user.status if user.status else "N/A"}}</p>
+  <p><strong>Member Name:</strong> {{user.name}}</p>
+  <p>
+    <strong>Share Type:</strong>
+    {% if user.share_name %}
+      {{user.share_name}}
+    {% else %}
+      (No share assigned)
+    {% endif %}
+  </p>
+  <p>
+    <strong>Extra Option (eggs in the place of a layer):</strong>
+    {% if user.extra_option %}
+      Yes
+    {% else %}
+      No
+    {% endif %}
+  </p>
+  <p><strong>Total Delivered/Received:</strong> {{delivered_total}}</p>
+  <p><strong>Remaining This Year's Allocation:</strong> {{remaining_units}}</p>
+  <p><strong>Leftover from Previous Year:</strong> {{previous_leftover}}</p>
+  <h3>Change Member Share Type</h3>
+  <form method="POST" action="{{url_for('user_share_type', user_id=user.id)}}">
+    <label for="new_share_type">Select new share type:</label>
+    <select name="new_share_type" id="new_share_type">
+      {% for share in all_share_types %}
+      <option value="{{share[0]}}" 
+        {% if share[0] == user.share_type_id %} selected {% endif %}>
+        {{share[1]}}
+      </option>
+      {% endfor %}
+    </select>
+    <button type="submit">Update Share Type</button>
+  </form>
+  <h3>Delivered Products</h3>
+  <table border="1" cellspacing="0" cellpadding="5">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Quantity Delivered</th>
+        <th>Delivery Date</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for delivery in deliveries %}
+      <tr>
+        <td>{{delivery.product_name}}</td>
+        <td>{{delivery.quantity}}</td>
+        <td>{{delivery.delivery_date}}</td>
+        <td>
+          <a href="{{url_for('edit_delivery', delivery_id=delivery.id)}}">
+            <button type="button">EDIT</button>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="actions" style="margin-top: 20px;">
+    <a href="{{url_for('member_history', user_id=user.id)}}">
+      <button type="button">MEMBER HISTORY</button>
+    </a>
+    <a href="{{url_for('members')}}">
+      <button type="button">BACK</button>
+    </a>
+  </div>
+</div>
+{% endblock %}

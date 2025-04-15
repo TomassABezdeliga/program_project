@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+
+{% block body %}
+<div class="member_registration-container">
+  <h2>REGISTRATION</h2>
+  <p>I picked up at the farm:</p>
+  <form method="POST" action="{{url_for('registrationm')}}">
+    <div class="form-group">
+      <label for="transaction_date">Picked up date:</label>
+      <input type="date" name="transaction_date" id="transaction_date" required>
+    </div>
+    <div class="form-group">
+      <label for="extra_option">Would you like to exchange the chicken in your share for extra eggs:</label>
+      <select name="extra_option" id="extra_option">
+        <option value="YES">Yes</option>
+        <option value="NO">No</option>
+      </select>
+    </div>
+    <h3>Choose share:</h3>
+    {% for share in share_types %}
+    <div class="form-group">
+      <label for="share_{{share[0]}}">{{share[1]}}(Available: {{share[3]}})</label>
+      <input type="number" name="share_{{share[0]}}" id="share_{{share[0]}}" min="0" value="0" required>
+    </div >
+    {% endfor %}
+    <div class="form-group">
+      <button type="submit">REGISTER</button>
+      <a href="{{url_for('statusm')}}">
+        <button type="button">BACK</button>
+      </a>
+    </div>
+  </form>
+</div>
+{% endblock %}

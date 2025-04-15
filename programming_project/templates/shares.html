@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+
+{% block body %}
+<h2>SHARES</h2>
+<form method="POST" action="{{url_for('shares')}}">
+  <div>
+    <label for="share_name">Share name:</label>
+    <input type="text" id="share_name" name="share_name" required>
+  </div>
+  <div>
+    <label for="share_content">Share content:</label>
+    <input type="text" id="share_content" name="share_content" required>
+  </div>
+  <div>
+    <label for="content_amount">Content amount:</label>
+    <input type="number" id="content_amount" name="content_amount" min="1" required>
+  </div>
+  <div style="margin-top: 10px;">
+    <button type="submit" name="add_share" value="true">ADD</button>
+  </div>
+</form>
+<div style="margin-top: 20px;">
+  <a href="{{url_for('admin')}}">
+    <button type="button">BACK</button>
+  </a>
+</div>
+<h3 style="margin-top: 30px;">Existing shares:</h3>
+<table border="1">
+  <thead>
+    <tr>
+      <th>SHARE NAME</th>
+      <th>CONTENT</th>
+      <th>AMOUNT</th>
+      <th>REMOVE</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for share in share_list %}
+    <tr>
+      <td>{{share[1]}}</td>
+      <td>{{share[2]}}</td>
+      <td>{{share[3]}}</td>
+      <td>
+        <form method="POST" action="{{url_for('shares')}}" style="display: inline;">
+          <input type="hidden" name="remove_id" value="{{share[0]}}">
+          <button type="submit" onclick="return confirm('Are you sure you want to remove this share type?');">REMOVE</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

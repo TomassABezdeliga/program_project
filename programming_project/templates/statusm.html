@@ -1,0 +1,52 @@
+{% extends "layout.html" %}
+
+{% block body %}
+<div class="member_status-container">
+  <h2>STATUS</h2>
+  <div class="status-info">
+    <p>Name: {{user.name}}</p>
+    <p>Shares: {% if purchased_shares_names %}{{purchased_shares_names|join(", ")}}{% else %}No purchased shares{% endif %}</p>
+    <h3>Your shares overview:</h3>
+    <table border="1">
+      <thead>
+        <tr>
+          <th>Share content</th>
+          <th>Yearly amount</th>
+          <th>Already picked up/delivered</th>
+          <th>Leftover</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for share in share_info %}
+        <tr>
+          <td>{{share.share_name}}</td>
+          <td>{{share.yearly_amount}}</td>
+          <td>{{share.total_quantity}}</td>
+          <td>{{share.leftover}}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <a href="/registrationm">
+    <button type="button" name="member_registration_button">
+      REGISTRATION
+    </button>
+  </a>
+  <a href="/historym">
+    <button type="button" name="member_history_button">
+      HISTORY
+    </button>
+  </a>
+  <a href="/change_password">
+    <button type="button" name="change_password_button">
+      CHANGE PASSWORD
+    </button>
+  </a>
+  <a href="/logout">
+    <button type="button" name="log_off_button">
+      LOG OFF
+    </button>
+  </a>
+</div>
+{% endblock %}

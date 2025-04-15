@@ -1,0 +1,534 @@
+import os
+from flask import Flask, render_template, request, redirect, url_for, session, flash
+import sqlite3
+import datetime
+from argon2 import PasswordHasher, exceptions
+
+app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET", "default_secret_key")
+
+ph = PasswordHasher()
+hashed_demo_password = ph.hash("your_password")
+
+def get_db_connection():
+    conn = sqlite3.connect("flask.db")
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA synchronous = NORMAL;")
+    return conn
+
+def insert_sql(cmd, vals=None):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        if vals:
+            c.execute(cmd, vals)
+        else:
+            c.execute(cmd)
+        conn.commit()
+
+def get_sql(cmd, vals=None):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        if vals:
+            c.execute(cmd, vals)
+        else:
+            c.execute(cmd)
+        res = c.fetchall()
+    return res
+
+@app.route('/')
+def index():
+    insert_sql(
+       "CREATE TABLE IF NOT EXISTS users (\
+       id INTEGER PRIMARY KEY AUTOINCREMENT,\
+       username TEXT UNIQUE NOT NULL,\
+       password TEXT NOT NULL,\
+       role TEXT CHECK(role IN ('client', 'admin')) NOT NULL,\
+       name TEXT,\
+       status TEXT,\
+       share_type_id INTEGER,\
+       FOREIGN KEY(share_type_id) REFERENCES share_types(id)\
+       );" 
+    )
+    insert_sql(
+        "CREATE TABLE IF NOT EXISTS transactions (\
+        id INTEGER PRIMARY KEY AUTOINCREMENT,\
+        user_id INTEGER NOT NULL,\
+        transaction_date DATE NOT NULL,\
+        extra_option BOOLEAN,\
+        FOREIGN KEY(user_id) REFERENCES users(id)\
+        );"
+    )
+    insert_sql(
+        "CREATE TABLE IF NOT EXISTS share_types (\
+        id INTEGER PRIMARY KEY AUTOINCREMENT,\
+        share_name TEXT NOT NULL,\
+        content TEXT NOT NULL,\
+        amount INTEGER NOT NULL\
+        );"
+    )
+    insert_sql(
+        "CREATE TABLE IF NOT EXISTS transaction_shares (\
+        id INTEGER PRIMARY KEY AUTOINCREMENT,\
+        transaction_id INTEGER NOT NULL,\
+        share_type_id INTEGER NOT NULL,\
+        quantity INTEGER NOT NULL,\
+        FOREIGN KEY(transaction_id) REFERENCES transactions(id),\
+        FOREIGN KEY(share_type_id) REFERENCES share_types(id)\
+        );"
+    )
+    insert_sql(
+        "CREATE TABLE IF NOT EXISTS history (\
+        id INTEGER PRIMARY KEY AUTOINCREMENT,\
+        user_id INTEGER NOT NULL,\
+        transaction_id INTEGER,\
+        change_date DATE NOT NULL,\
+        FOREIGN KEY(user_id) REFERENCES users(id)\
+        );"
+    )
+    insert_sql(
+        "CREATE TABLE IF NOT EXISTS deliveries (\
+        id INTEGER PRIMARY KEY AUTOINCREMENT,\
+        user_id INTEGER NOT NULL,\
+        product_name TEXT NOT NULL,\
+        delivery_date DATE NOT NULL,\
+        quantity INTEGER NOT NULL,\
+        FOREIGN KEY(user_id) REFERENCES users(id)\
+        );"
+    )
+    return render_template("index.html")
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        if not username or not password:
+            flash("Please, enter username and password!", "danger")
+            return redirect(url_for("login"))
+        user = get_sql(
+            "SELECT id, username, password, role, name, status\
+            FROM users WHERE username = ?", (username,)
+        )
+        if user:
+            user = user[0]
+            hashed_password = user[2]
+            try:
+                ph.verify(hashed_password, password)
+                session["user_id"] = user[0]
+                session["username"] = user[1]
+                session["role"] = user[3]
+                flash("Login successful!", "success")
+                if user[3] == "client":
+                    return redirect(url_for("statusm"))
+                elif user[3] == "admin":
+                    return redirect(url_for("admin"))
+            except exceptions.VerifyMismatchError:
+                flash("Wrong username or password!", "error")
+                return redirect(url_for("index"))
+    return render_template("login.html")
+
+@app.route("/statusm")
+def statusm():
+    if "user_id" not in session:
+        flash("Please, login!", "warning")
+        return redirect(url_for("login"))
+    user_id = session["user_id"]
+    user_data = get_sql(
+        "SELECT id, username, name, status\
+        FROM users WHERE id = ?", (user_id,)
+    )
+    if not user_data:
+        flash("User not found!", "danger")
+        return redirect(url_for("logout"))
+    user = user_data[0]
+    share_data = get_sql(
+        "SELECT st.share_name, st.amount as yearly_amount,\
+        COALESCE(SUM(ts.quantity), 0) as total_quantity\
+        FROM transactions t\
+        JOIN transaction_shares ts ON t.id = ts.transaction_id\
+        JOIN share_types st ON ts.share_type_id = st.id \
+        WHERE t.user_id = ? GROUP BY st.id;", (user_id,)
+    )
+    updated_shares = []
+    purchased_shares_names = []
+    for row in share_data:
+        share_name, yearly_amount, total_quantity = row
+        leftover = yearly_amount - total_quantity if yearly_amount > total_quantity else 0
+        updated_shares.append({
+            "share_name": share_name,
+            "yearly_amount": yearly_amount,
+            "total_quantity": total_quantity,
+            "leftover": leftover
+        })
+        if total_quantity > 0:
+            purchased_shares_names.append(share_name)
+    purchased_shares_names = list(set(purchased_shares_names))
+    return render_template("statusm.html", user=user, share_info=updated_shares, purchased_shares_names=purchased_shares_names)
+
+@app.route("/admin")
+def admin():
+    return render_template("admin.html")
+
+@app.route("/shares", methods=["GET", "POST"])
+def shares():
+    if "user_id" not in session:
+        flash("Please, login!", "warning")
+        return redirect(url_for("login"))
+    if session.get("role") != "admin":
+        flash("Access denied!", "danger")
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        if "add_share" in request.form:
+            share_name = request.form.get("share_name", "").strip()
+            share_content = request.form.get("share_content", "").strip()
+            content_amount_str = request.form.get("content_amount", "0").strip()
+            try:
+                content_amount = int(content_amount_str)
+            except ValueError:
+                content_amount = 0
+            if share_name and share_content and content_amount > 0:
+                insert_sql(
+                    "INSERT INTO share_types (share_name, content, amount)\
+                    VALUES (?, ?, ?)", (share_name, share_content, content_amount)
+                )
+                flash("New share added!", "success")
+            else:
+                flash("Please, fill in all fields correctly!", "warning")
+        elif "remove_id" in request.form:
+            remove_id = request.form.get("remove_id")
+            if remove_id:
+                insert_sql(
+                    "DELETE FROM share_types WHERE id = ?", (remove_id,)
+                )
+                flash("Share type removed!", "success")
+            else:
+                flash("Invalid share selected for removal!", "warning")
+        return redirect(url_for("shares"))
+    else:
+        share_list = get_sql(
+            "SELECT id, share_name, content, amount FROM share_types"
+        )
+        return render_template("shares.html", share_list=share_list)
+
+@app.route("/registrationa", methods=["GET", "POST"])
+def registrationa():
+    if "user_id" not in session:
+        flash("Please, login!", "warning")
+        return redirect(url_for("login"))
+    if session.get("role") != "admin":
+        flash("Access denied!", "danger")
+        return redirect(url_for("index"))
+    all_clients = get_sql(
+        "SELECT id, name FROM users WHERE role='client'"
+    )
+    if request.method == "POST":
+        user_id_str = request.form.get("user_id", "")
+        product_name = request.form.get("product_name", "").strip()
+        quantity_str = request.form.get("quantity", "")
+        delivery_date = request.form.get("delivery_date", "")
+        previous_input = {
+            "user_id": user_id_str,
+            "product_name": product_name,
+            "quantity": quantity_str,
+            "delivery_date": delivery_date
+        }
+        if not (user_id_str and product_name and quantity_str and delivery_date):
+            flash("Please, fill all fields!", "warning")
+            return render_template("registrationa.html", all_clients=all_clients, previous_input=previous_input)
+        try:
+            user_id = int(user_id_str)
+            quantity = int(quantity_str)
+        except ValueError:
+            flash("Please, enter valid numeric values!", "danger")
+            return render_template("registrationa.html", all_clients=all_clients, previous_input=previous_input)
+        insert_sql(
+            "INSERT INTO deliveries (user_id, product_name, quantity, delivery_date)\
+            VALUES (?, ?, ?, ?)", (user_id, product_name, quantity, delivery_date)
+        )
+        flash("Delivery registered successfully!", "success")
+        return redirect(url_for("registrationa"))
+    else:
+        return render_template("registrationa.html", all_clients=all_clients, previous_input=None)
+
+@app.route("/historya")
+def historya():
+    if "user_id" not in session:
+        flash("Please, login!", "warning")
+        return redirect(url_for("login"))
+    if session.get("role") != "admin":
+        flash("Access denied!", "danger")
+        return redirect(url_for("index"))
+    history_data = get_sql(
+        "SELECT t.transaction_date, st.share_name, ts.quantity, u.name\
+        FROM transactions t\
+        JOIN transaction_shares ts ON t.id = ts.transaction_id\
+        JOIN share_types st ON ts.share_type_id = st.id\
+        JOIN users u ON t.user_id = u.id\
+        ORDER BY t.transaction_date DESC"
+    )
+    return render_template("historya.html", history_data=history_data)
+
+@app.route("/members", methods=["GET", "POST"])
+def members():
+    if "user_id" not in session:
+        flash("Please, login!", "warning")
+        return redirect(url_for("login"))
+    if session.get("role") != "admin":
+        flash("Access denied!", "danger")
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        new_member_name = request.form.get("new_member_name", "").strip()
+        share_type_id_str = request.form.get("share_type_id", "")
+        if not new_member_name:
+            flash("Please, enter member name!", "warning")
+            return redirect(url_for("members"))
+        try:
+            share_type_id = int(share_type_id_str)
+        except ValueError:
+            share_type_id = None
+        default_username = new_member_name.lower().replace(" ", "_")
+        default_password = "password123"
+        hashed_pw = ph.hash(default_password)
+        insert_sql(
+            "INSERT INTO users (username, password, role, name, status, share_type_id)\
+            VALUES (?, ?, ?, ?, ?, ?)",
+            (default_username, hashed_pw, "client", new_member_name, "", share_type_id)
+        )
+        flash(f"New member '{new_member_name}' added successfully!", "success")
+        return redirect(url_for("members"))
+    else:
+        share_types = get_sql("SELECT id, share_name FROM share_types")
+        members_list = get_sql(
+            "SELECT u.id, u.name, st.share_name\
+            FROM users u \
+            LEFT JOIN share_types st ON u.share_type_id = st.id\
+            WHERE u.role='client'"
+        )
+        return render_template("members.html", share_types=share_types, members_list=members_list)
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("You have been logged out!", "success")
+    return redirect(url_for("index"))
+
+@app.route("/historym")
+def historym():
+    if "user_id" not in session:
+        flash("Please, login!", "warning")
+        return redirect(url_for("login"))
+    user_id = session["user_id"]
+    history_data = get_sql(
+        "SELECT transaction_date, st.share_name, ts.quantity\
+        FROM transactions t\
+        JOIN transaction_shares ts ON t.id = ts.transaction_id\
+        JOIN share_types st ON ts.share_type_id = st.id\
+        WHERE t.user_id = ?\
+        ORDER BY t.transaction_date DESC", (user_id,)
+    )
+    return render_template("historym.html", history_data=history_data)
+
+@app.route("/registrationm", methods=["GET", "POST"])
+def registrationm():
+    if "user_id" not in session:
+        flash("Please, login!", "warning")
+        return redirect(url_for("login"))
+    user_id = session["user_id"]
+    if request.method == "POST":
+        transaction_date = request.form.get("transaction_date", "")
+        extra_option_str = request.form.get("extra_option", "")
+        extra_option = True if extra_option_str == "YES" else False
+        conn = sqlite3.connect("flask.db")
+        conn.execute("PRAGMA foreign_keys = ON")
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO transactions (user_id, transaction_date, extra_option)\
+            VALUES (?, ?, ?)", (user_id, transaction_date, extra_option)
+        )
+        transaction_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        insert_sql(
+            "INSERT INTO history (user_id, transaction_id, change_date)\
+            VALUES (?, ?, date('now'))", (user_id, transaction_id)
+        )
+        share_types = get_sql(
+            "SELECT id, share_name, content, amount FROM share_types"
+        )
+        for share in share_types:
+            share_id = share[0]
+            quantity_str = request.form.get(f"share_{share_id}", "0")
+            try:
+                quantity = int(quantity_str)
+            except ValueError:
+                quantity = 0
+            if quantity > 0:
+                insert_sql(
+                    "INSERT INTO transaction_shares \
+                    (transaction_id, share_type_id, quantity) \
+                    VALUES (?, ?, ?)", (transaction_id, share_id, quantity)
+                )
+        flash("Data added successfully!", "success")
+        return redirect(url_for("statusm"))
+    else:
+        share_types = get_sql(
+            "SELECT id, share_name, content, amount FROM share_types"
+        )
+        return render_template("registrationm.html", share_types=share_types)
+
+@app.route("/edit_delivery/<int:delivery_id>", methods=["GET", "POST"])
+def edit_delivery(delivery_id):
+    if "user_id" not in session:
+        flash("Please, login!", "warning")
+        return redirect(url_for("login"))
+    if session.get("role") != "admin":
+        flash("Access denied!", "danger")
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        product_name = request.form.get("product_name", "").strip()
+        delivery_date = request.form.get("delivery_date", "").strip()
+        quantity_str = request.form.get("quantity", "").strip()
+        if not product_name or not delivery_date or not quantity_str:
+            flash("Please, fill all the required fields!", "warning")
+            return redirect(url_for("edit_delivery", delivery_id=delivery_id))
+        try:
+            quantity = int(quantity_str)
+        except ValueError:
+            flash("Invalid quantity provided!", "danger")
+            return redirect(url_for("edit_delivery", delivery_id=delivery_id))
+        insert_sql(
+            "UPDATE deliveries SET product_name = ?,\
+            quantity = ?, delivery_date = ?\
+            WHERE id = ?", (product_name, quantity, delivery_date, delivery_id)
+        )
+        flash("Delivery information updated successfully!", "success")
+        return redirect(url_for("registrationa"))
+    else:
+        delivery = get_sql(
+            "SELECT id, user_id, product_name, quantity, delivery_date\
+            FROM deliveries WHERE id = ?", (delivery_id,)
+        )
+        if not delivery:
+            flash("Delivery not found!", "warning")
+            return redirect(url_for("registrationa"))
+        delivery = delivery[0]
+        return render_template("edit_delivery.html", delivery=delivery)
+
+@app.route("/change_password", methods=["GET", "POST"])
+def change_password():
+    if "user_id" not in session:
+        flash("Please, login!", "warning")
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        if not new_password or not confirm_password:
+            flash("Please, fill in all fields!", "warning")
+            return redirect(url_for("change_password"))
+        if new_password != confirm_password:
+            flash("The confirmation doesn't match the password!", "warning")
+            return redirect(url_for("change_password"))
+        new_hashed = ph.hash(new_password)
+        user_id = session["user_id"]
+        insert_sql(
+            "UPDATE users SET password = ?\
+            WHERE id = ?", (new_hashed, user_id)
+        )
+        flash("Password changed successfully!", "success")
+        return redirect(url_for("statusm"))
+    return render_template("change_password.html")
+
+@app.route("/user_share_type/<int:user_id>", methods=["POST"])
+def user_share_type(user_id):
+    new_share_type = request.form.get("new_share_type")
+    if new_share_type:
+        insert_sql(
+            "UPDATE users SET share_type_id = ?\
+            WHERE id = ?", (new_share_type, user_id)
+        )
+        flash("Share type updated!", "success")
+        insert_sql(
+            "INSERT INTO history (user_id, change_date)\
+            VALUES (?, date('now'))", (user_id,)
+        )
+    else:
+        flash("Invalid share type", "warning")
+    return redirect(url_for("statusa", user_id=user_id))
+
+@app.route("/statusa/<int:user_id>")
+def statusa(user_id):
+    if "user_id" not in session or session["role"] != "admin":
+        flash("Access denied!", "danger")
+        return redirect(url_for("login"))
+    user_info = get_sql(
+        "SELECT u.id, u.name, u.share_type_id, u.status,\
+        (SELECT t.extra_option FROM transactions t\
+        WHERE t.user_id = u.id\
+        ORDER BY t.transaction_date DESC LIMIT 1) as extra_option,\
+        st.share_name, st.amount as yearly_amount\
+        FROM users u\
+        LEFT JOIN share_types st ON u.share_type_id = st.id\
+        WHERE u.id = ?", (user_id,)
+    )
+    if not user_info:
+        flash("Member not found!", "warning")
+        return redirect(url_for("members"))
+    user_info = user_info[0]
+    if user_info["share_name"] is None:
+        user_info["share_name"] = "N/A"
+    if user_info["status"] is None:
+        user_info["status"] = ""
+    current_year = str(datetime.date.today().year)
+    previous_year = str(datetime.date.today().year - 1)
+    current_picked = get_sql(
+        "SELECT COALESCE(SUM(ts.quantity), 0)\
+        FROM transactions t\
+        JOIN transaction_shares ts ON t.id = ts.transaction_id\
+        WHERE t.user_id = ? AND strftime('%Y', t.transaction_date) = ?", (user_id, current_year)
+    )
+    current_delivered = get_sql(
+        "SELECT COALESCE(SUM(quantity), 0)\
+        FROM deliveries WHERE user_id = ?\
+        AND strftime('%Y', delivery_date) = ?", (user_id, current_year)
+    )
+    delivered_total = current_picked[0][0] + current_delivered[0][0]
+    yearly_amount = user_info["yearly_amount"] if user_info["yearly_amount"] else 0
+    remaining_units = yearly_amount - delivered_total if yearly_amount > delivered_total else 0
+    prev_picked = get_sql(
+        "SELECT COALESCE(SUM(ts.quantity), 0)\
+        FROM transactions t\
+        JOIN transaction_shares ts ON t.id = ts.transaction_id\
+        WHERE t.user_id = ? AND strftime('%Y', t.transaction_date) = ?", (user_id, previous_year)
+    )
+    prev_delivered = get_sql(
+        "SELECT COALESCE(SUM(quantity), 0)\
+        FROM deliveries WHERE user_id = ?\
+        AND strftime('%Y', delivery_date) = ?", (user_id, previous_year)
+    )
+    previous_total = prev_picked[0][0] + prev_delivered[0][0]
+    previous_leftover = yearly_amount - previous_total if yearly_amount > previous_total else 0
+    deliveries = get_sql(
+        "SELECT id, product_name, quantity, delivery_date\
+        FROM deliveries WHERE user_id = ?", (user_id,)
+    )
+    return render_template("statusa.html", user=user_info, delivered_total=delivered_total, remaining_units=remaining_units, previous_leftover=previous_leftover, deliveries=deliveries)
+
+@app.route("/member_history/<int:user_id>")
+def member_history(user_id):
+    if "user_id" not in session or session.get("role") != "admin":
+        flash("Access denied!", "danger")
+        return redirect(url_for("login"))
+    history_data = get_sql(
+        "SELECT transaction_date, st.share_name, ts.quantity\
+        FROM transactions t\
+        JOIN transaction_shares ts ON t.id = ts.transaction_id\
+        JOIN share_types st ON ts.share_type_id = st.id\
+        WHERE t.user_id = ?\
+        ORDER BY t.transaction_date DESC", (user_id,)
+    )
+    return render_template("member_history.html", history_data=history_data)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=False)

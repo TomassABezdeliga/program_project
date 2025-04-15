@@ -1,0 +1,39 @@
+{% extends "layout.html" %}
+
+{% block body %}
+<h2>REGISTRATION (ADMIN)</h2>
+<div class="admin_registration-container">
+  <p>Delivered:</p>
+  <form method="POST" action="{{url_for('registrationa')}}">
+    <div>
+      <label for="user_id">Member:</label>
+      <select name="user_id" id="user_id" required>
+        <option value="">Select Member</option>
+        {% for client in all_clients %}
+        <option value="{{client[0]}}" {% if previous_input and previous_input.user_id == client[0]|string %}selected{% endif %}>{{client[1]}}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="product_name">Product name:</label>
+      <input type="text" name="product_name" id="product_name" required value="{{previous_input.product_name if previous_input else ''}}">
+    </div>
+    <div>
+      <label for="quantity">Quantity:</label>
+      <input type="number" name="quantity" id="quantity" min="1" required value="{{previous_input.quantity if previous_input else ''}}">
+    </div>
+    <div>
+      <label for="delivery_date">Date:</label>
+      <input type="date" name="delivery_date" id="delivery_date" required value="{{previous_input.delivery_date if previous_input else ''}}">
+    </div>
+    <div style="margin-top: 10px;">
+      <button type="submit">REGISTER</button>
+    </div>
+  </form>
+  <div style="margin-top: 20px;">
+    <a href="{{url_for('admin')}}">
+      <button type="button">BACK</button>
+    </a>
+  </div>
+</div>
+{% endblock %}

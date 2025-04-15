@@ -1,0 +1,51 @@
+{% extends "layout.html" %}
+
+{% block body %}
+<h2>HISTORY</h2>
+<div class="member_history-container">
+  <div style="float:left; margin-right: 60px;">
+    <h3>Eggs picked up:</h3>
+    <table border="1">
+      <tr>
+        <th>Quantity</th>
+        <th>Date</th>
+      </tr>
+      {% for transaction_date, share_name, quantity in history_data %}
+      {% if "egg" in share_name|lower %}
+      <tr>
+        <td>{{quantity}}</td>
+        <td>{{transaction_date}}</td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </table>
+  </div>
+  <div style="float:left;">
+    <h3>Meat picked up:</h3>
+    <table border="1">
+      <tr>
+        <th>What</th>
+        <th>Quantity</th>
+        <th>Date</th>
+      </tr>
+      {% for transaction_date, share_name, quantity in history_data %}
+      {% if "meat" in share_name|lower
+        or "beitekylling" in share_name|lower
+        or "okselasse" in share_name|lower %}
+      <tr>
+        <td>{{share_name}}</td>
+        <td>{{quantity}}</td>
+        <td>{{transaction_date}}</td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </table>
+  </div>
+  <div style="clear:both;"></div>
+  <div style="margin-top: 20px;">
+    <a href="{{url_for('statusm')}}">
+      <button type="button">BACK</button>
+    </a>
+  </div>
+</div>
+{% endblock %}
